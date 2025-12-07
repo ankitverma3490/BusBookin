@@ -9,9 +9,15 @@ const paypalRoutes = require("./routes/paypalRoutes");
 const app = express();
 
 app.use(express.json());
-app.use(cors({
-  origin: "http://localhost:5173" // change to your frontend origin
+ app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "https://visitmysheeptransportation.netlify.app",
+    "https://visitmysheeptransportatadmin.netlify.app"
+  ],
+  credentials: true
 }));
+
 
 const PORT = process.env.PORT || 8080;
 connectDB(process.env.MONGO_URI);

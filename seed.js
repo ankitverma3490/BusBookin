@@ -4,10 +4,12 @@ const connectDB = require("./config/db");
 const Trip = require("./models/Trip");
 
 const trips = [
-  { name: "Macon State Prison (Roundtrip)", time: "7:00 AM", basePrice: 100 },
-  { name: "Pine Ridge Outing (One-way)", time: "9:00 AM", basePrice: 80 }
+  {   name: "Augusta State Medical Prison (Roundtrip)", time: "7:00 AM", basePrice: 100  },
+   {  name: "Baldwin State Prison (Roundtrip)", time: "7:00 AM", basePrice: 100 },
+  {  name: "Macon State Prison (Roundtrip)", time: "7:00 AM", basePrice: 100 },
+  {  name: "Riverbend Correctional Facility (Roundtrip)", time: "7:00 AM", basePrice: 100 },
+  {  name: "Georgia Diagnostic Prison (Roundtrip)", time: "7:00 AM", basePrice: 100 },
 ];
-
 const run = async () => {
   await connectDB(process.env.MONGO_URI);
   await Trip.deleteMany({});
@@ -17,3 +19,5 @@ const run = async () => {
 };
 
 run().catch(err => console.error(err));
+
+ 
