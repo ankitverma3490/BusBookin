@@ -75,26 +75,32 @@
 //     res.status(500).json({ message: "PayPal capture failed" });
 //   }
 // };
-import paypal from "@paypal/checkout-server-sdk";
-import Trip from "../models/tripModel.js";
+const paypal = require("@paypal/checkout-server-sdk");
+const { client } = require("../config/paypal");
+const Trip = require("../models/Trip");
+const Booking = require("../models/Booking");
 
-// PayPal Environment
-const environment = new paypal.core.SandboxEnvironment(
-  process.env.PAYPAL_CLIENT_ID,
-  process.env.PAYPAL_CLIENT_SECRET
-);
-const client = new paypal.core.PayPalHttpClient(environment);
-
-// CREATE ORDER
-export const createOrder = async (req, res) => {
+// --------------------------------------------------
+// 1️⃣ CREATE PAYPAL ORDER
+// --------------------------------------------------
+exports.createOrder = async (req, res) => {
   try {
-    const { tripId } = req.body;
+    const { tripId, passenger } = req.body;
+
+    if (!tripId) {
+      return res.status(400).json({ message: "tripId is required" });
+    }
 
     const trip = await Trip.findById(tripId);
-    if (!trip) return res.status(404).json({ message: "Trip not found" });
+    if (!trip) {
+      return res.status(404).json({ message: "Trip not found" });
+    }
 
-    const price = trip.basePrice.toFixed(2);
+    // Calculate price
+    const age = Number(passenger?.age);
+    const childPrice = age > 0 && age < 16 ? 50 : trip.basePrice;
 
+    // Create PayPal order
     const request = new paypal.orders.OrdersCreateRequest();
     request.prefer("return=representation");
     request.requestBody({
@@ -103,7 +109,7 @@ export const createOrder = async (req, res) => {
         {
           amount: {
             currency_code: "USD",
-            value: price,
+            value: childPrice.toFixed(2),
           },
         },
       ],
@@ -111,39 +117,72 @@ export const createOrder = async (req, res) => {
 
     const order = await client.execute(request);
 
-    res.json({
+    return res.json({
       orderId: order.result.id,
-      amount: price,
+      amount: childPrice,
     });
 
   } catch (err) {
-    console.error("PAYPAL CREATE ORDER ERROR:", err);
-    res.status(500).json({ error: err.message });
+    console.error("❌ PayPal Create Order Error:", err);
+    return res.status(500).json({
+      message: "PayPal order creation failed",
+      error: err.message,
+    });
   }
 };
 
-// CAPTURE ORDER
-export const captureOrder = async (req, res) => {
+// --------------------------------------------------
+// 2️⃣ CAPTURE PAYMENT + SAVE BOOKING
+// --------------------------------------------------
+exports.captureOrder = async (req, res) => {
   try {
     const { orderId, tripId, date, passenger } = req.body;
 
-    const request = new paypal.orders.OrdersCaptureRequest(orderId);
-    request.requestBody({});
+    if (!orderId) {
+      return res.status(400).json({ message: "orderId is required" });
+    }
 
-    const capture = await client.execute(request);
+    const captureRequest = new paypal.orders.OrdersCaptureRequest(orderId);
+    captureRequest.requestBody({});
 
-    // Here you save booking in DB
-    const booking = {
-      tripId,
+    const capture = await client.execute(captureRequest);
+
+    if (!capture.result ||
+        !capture.result.purchase_units ||
+        capture.result.status !== "COMPLETED") 
+    {
+      return res.status(400).json({ message: "Payment not completed" });
+    }
+
+    // Fetch trip again
+    const trip = await Trip.findById(tripId);
+    if (!trip) {
+      return res.status(404).json({ message: "Trip not found" });
+    }
+
+    const age = Number(passenger.age);
+    const price = age > 0 && age < 16 ? 50 : trip.basePrice;
+
+    // Save booking
+    const booking = await Booking.create({
+      trip: tripId,
       date,
       passenger,
+      pricePaid: price,
       paymentId: capture.result.id,
-      status: "paid",
-    };
+      paymentStatus: "PAID"
+    });
 
-    res.json({ booking });
+    return res.json({
+      message: "Payment captured and booking saved",
+      booking,
+    });
+
   } catch (err) {
-    console.error("PAYPAL CAPTURE ERROR:", err);
-    res.status(500).json({ error: err.message });
+    console.error("❌ PayPal Capture Error:", err);
+    return res.status(500).json({
+      message: "PayPal capture failed",
+      error: err.message,
+    });
   }
 };
