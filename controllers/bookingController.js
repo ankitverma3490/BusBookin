@@ -40,3 +40,37 @@ exports.getBookings = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+// ==========================
+// GET BOOKING BY ID
+// ==========================
+exports.getBookingById = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id).populate("trip");
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    res.json(booking);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ==========================
+// VERIFY TICKET (QR SCAN)
+// ==========================
+exports.verifyTicket = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.bookingId).populate("trip");
+
+    if (!booking) {
+      return res.status(404).json({ valid: false, message: "Invalid Ticket" });
+    }
+
+    res.json({ valid: true, booking });
+  } catch (err) {
+    res.status(500).json({ valid: false, message: "Server error" });
+  }
+};
