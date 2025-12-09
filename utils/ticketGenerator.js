@@ -102,9 +102,9 @@ exports.generateTicketPDF = async (booking) => {
       // ===========================================
       // HEADER
       // ===========================================
-      if (logoBuffer) {
-        doc.image(logoBuffer, 40, 30, { width: 80 });
-      }
+    //   if (logoBuffer) {
+    //     doc.image(logoBuffer, 40, 30, { width: 80 });
+    //   }
 
       doc
         .fillColor(primary)
