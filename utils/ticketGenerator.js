@@ -91,7 +91,7 @@ exports.generateTicketPDF = async (booking) => {
       // HEADER
       // ===========================================
       doc
-        .image("assets/logo.png", 40, 30, { width: 80 })
+        .image("https://i.ibb.co/vv11Vmdf/visit-my-sheep-logo-high.webp", 40, 30, { width: 80 })
         .fillColor(primary)
         .fontSize(26)
         .text("Visit My Sheep Transportation", 130, 40)
