@@ -60,9 +60,10 @@
 
 //   return filePath;
 // };
-const PDFDocument = require("pdfkit");
+ const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const QRCode = require("qrcode");
+const axios = require("axios");
 
 exports.generateTicketPDF = async (booking) => {
   return new Promise(async (resolve, reject) => {
@@ -80,18 +81,32 @@ exports.generateTicketPDF = async (booking) => {
       const stream = fs.createWriteStream(outputPath);
       doc.pipe(stream);
 
-      // ===========================================
-      // COLORS & BRANDING
-      // ===========================================
-      const primary = "#1a73e8"; // blue
+      // COLORS
+      const primary = "#1a73e8";
       const dark = "#222";
       const gray = "#555";
 
       // ===========================================
+      // FETCH LOGO AS BUFFER (important!)
+      // ===========================================
+      const logoUrl = "https://i.ibb.co/vv11Vmdf/visit-my-sheep-logo-high.webp";
+
+      let logoBuffer = null;
+      try {
+        const response = await axios.get(logoUrl, { responseType: "arraybuffer" });
+        logoBuffer = Buffer.from(response.data, "binary");
+      } catch (error) {
+        console.error("Unable to download logo:", error);
+      }
+
+      // ===========================================
       // HEADER
       // ===========================================
+      if (logoBuffer) {
+        doc.image(logoBuffer, 40, 30, { width: 80 });
+      }
+
       doc
-        .image("https://i.ibb.co/vv11Vmdf/visit-my-sheep-logo-high.webp", 40, 30, { width: 80 })
         .fillColor(primary)
         .fontSize(26)
         .text("Visit My Sheep Transportation", 130, 40)
@@ -99,11 +114,10 @@ exports.generateTicketPDF = async (booking) => {
         .fontSize(12)
         .text("Official Travel Ticket", 130, 70);
 
-      doc.moveDown(2);
       doc.moveTo(40, 110).lineTo(550, 110).strokeColor(primary).stroke();
 
       // ===========================================
-      // QR CODE (LARGE + CENTER)
+      // QR CODE
       // ===========================================
       const qrData = `BOOKING:${booking._id}`;
       const qrImage = await QRCode.toDataURL(qrData);
@@ -111,100 +125,51 @@ exports.generateTicketPDF = async (booking) => {
       doc.image(qrImage, 400, 140, { width: 150 });
 
       // ===========================================
-      // TICKET DETAILS SECTION
+      // PASSENGER DETAILS
       // ===========================================
-      doc
-        .fillColor(dark)
-        .fontSize(18)
-        .text("Passenger Information", 40, 140);
+      doc.fillColor(dark).fontSize(18).text("Passenger Information", 40, 140);
 
-      doc
-        .fontSize(12)
-        .fillColor(gray)
-        .text(`Full Name: `, 40, 170)
-        .fillColor(dark)
-        .text(booking.passenger.fullName, 150, 170);
+      const infoY = 170;
+      const lineHeight = 20;
 
-      doc
-        .fillColor(gray)
-        .text(`Email: `, 40, 190)
-        .fillColor(dark)
-        .text(booking.passenger.email, 150, 190);
+      const info = [
+        ["Full Name", booking.passenger.fullName],
+        ["Email", booking.passenger.email],
+        ["Phone", booking.passenger.phone],
+        ["Gender", booking.passenger.gender],
+        ["Age", booking.passenger.age],
+      ];
 
-      doc
-        .fillColor(gray)
-        .text(`Phone: `, 40, 210)
-        .fillColor(dark)
-        .text(booking.passenger.phone, 150, 210);
-
-      doc
-        .fillColor(gray)
-        .text(`Gender: `, 40, 230)
-        .fillColor(dark)
-        .text(booking.passenger.gender, 150, 230);
-
-      doc
-        .fillColor(gray)
-        .text(`Age: `, 40, 250)
-        .fillColor(dark)
-        .text(booking.passenger.age, 150, 250);
+      info.forEach(([label, value], i) => {
+        doc.fontSize(12).fillColor(gray).text(`${label}:`, 40, infoY + i * lineHeight);
+        doc.fillColor(dark).text(value, 150, infoY + i * lineHeight);
+      });
 
       // ===========================================
-      // TRIP DETAILS
+      // TRIP INFO
       // ===========================================
-      doc
-        .fillColor(primary)
-        .fontSize(18)
-        .text("Trip Details", 40, 300);
+      doc.fillColor(primary).fontSize(18).text("Trip Details", 40, 300);
 
-      doc
-        .fontSize(12)
-        .fillColor(gray)
-        .text(`Trip Name: `, 40, 330)
-        .fillColor(dark)
-        .text(booking.trip.name, 150, 330);
+      const tripDetails = [
+        ["Trip Name", booking.trip.name],
+        ["Trip Time", booking.trip.time],
+        ["Travel Date", booking.date],
+        ["Amount Paid", `$${booking.pricePaid}`],
+      ];
 
-      doc
-        .fillColor(gray)
-        .text(`Trip Time: `, 40, 350)
-        .fillColor(dark)
-        .text(booking.trip.time, 150, 350);
-
-      doc
-        .fillColor(gray)
-        .text(`Travel Date: `, 40, 370)
-        .fillColor(dark)
-        .text(booking.date, 150, 370);
-
-      doc
-        .fillColor(gray)
-        .text(`Amount Paid: `, 40, 390)
-        .fillColor(primary)
-        .fontSize(16)
-        .text(`$${booking.pricePaid}`, 150, 388);
+      tripDetails.forEach(([label, value], i) => {
+        doc.fontSize(12).fillColor(gray).text(`${label}:`, 40, 330 + i * 20);
+        doc.fillColor(dark).text(value, 150, 330 + i * 20);
+      });
 
       // ===========================================
       // FOOTER
       // ===========================================
-      doc.moveDown(3);
       doc
         .fontSize(10)
         .fillColor(gray)
-        .text(
-          "Please show this ticket to the bus conductor. QR code must be scannable.",
-          40,
-          460
-        );
-
-      doc
-        .moveDown()
-        .text(
-          "Support: support@visitmysheep.com | Phone: +1 (555) 123-4567",
-          40,
-          480
-        );
-
-      doc
+        .text("Please show this ticket to the bus conductor. QR code must be scannable.", 40, 460)
+        .text("Support: support@visitmysheep.com | Phone: +1 (555) 123-4567", 40, 480)
         .fillColor(primary)
         .text("Thank you for choosing Visit My Sheep Transportation!", 40, 510);
 
