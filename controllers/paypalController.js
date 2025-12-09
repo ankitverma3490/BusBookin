@@ -1,84 +1,8 @@
-// const { client } = require("../config/paypal");
-// const Trip = require("../models/Trip");
-// const Booking = require("../models/Booking");
-
-// // 1️⃣ CREATE ORDER
-// exports.createOrder = async (req, res) => {
-//   try {
-//     const { tripId, date, passenger } = req.body;
-
-//     const trip = await Trip.findById(tripId);
-//     if (!trip) return res.status(404).json({ message: "Trip not found" });
-
-//     const age = Number(passenger.age);
-//     const price = age > 0 && age < 16 ? 50 : trip.basePrice;
-
-//     const request = {
-//       intent: "CAPTURE",
-//       purchase_units: [
-//         {
-//           amount: { currency_code: "USD", value: price }
-//         }
-//       ]
-//     };
-
-//     const order = await client.execute(
-//       new (require("@paypal/checkout-server-sdk").orders.OrdersCreateRequest)()
-//         .setRequestBody(request)
-//     );
-
-//     res.json({
-//       orderId: order.result.id,
-//       amount: price
-//     });
-
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: "PayPal order creation failed" });
-//   }
-// };
-
-// // 2️⃣ CAPTURE PAYMENT & SAVE BOOKING
-// exports.captureOrder = async (req, res) => {
-//   try {
-//     const { orderId, tripId, date, passenger } = req.body;
-
-//     // ---- CAPTURE ----
-//     const captureReq =
-//       new (require("@paypal/checkout-server-sdk").orders.OrdersCaptureRequest)(orderId);
-
-//     captureReq.requestBody({});
-//     const capture = await client.execute(captureReq);
-
-//     if (!capture.result.purchase_units)
-//       return res.status(400).json({ message: "Payment failed" });
-
-//     // ---- SAVE BOOKING ----
-//     const trip = await Trip.findById(tripId);
-//     const age = Number(passenger.age);
-//     const price = age > 0 && age < 16 ? 50 : trip.basePrice;
-
-//     const booking = await Booking.create({
-//       trip: tripId,
-//       date,
-//       passenger,
-//       pricePaid: price
-//     });
-
-//     res.json({
-//       message: "Payment captured & booking saved",
-//       booking
-//     });
-
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: "PayPal capture failed" });
-//   }
-// };
 const paypal = require("@paypal/checkout-server-sdk");
 const { client } = require("../config/paypal");
 const Trip = require("../models/Trip");
 const Booking = require("../models/Booking");
+const { generateTicketPDF } = require("../utils/ticketGenerator");
 
 // --------------------------------------------------
 // 1️⃣ CREATE PAYPAL ORDER
@@ -134,6 +58,58 @@ exports.createOrder = async (req, res) => {
 // --------------------------------------------------
 // 2️⃣ CAPTURE PAYMENT + SAVE BOOKING
 // --------------------------------------------------
+// exports.captureOrder = async (req, res) => {
+//   try {
+//     const { orderId, tripId, date, passenger } = req.body;
+
+//     if (!orderId) {
+//       return res.status(400).json({ message: "orderId is required" });
+//     }
+
+//     const captureRequest = new paypal.orders.OrdersCaptureRequest(orderId);
+//     captureRequest.requestBody({});
+
+//     const capture = await client.execute(captureRequest);
+
+//     if (!capture.result ||
+//         !capture.result.purchase_units ||
+//         capture.result.status !== "COMPLETED") 
+//     {
+//       return res.status(400).json({ message: "Payment not completed" });
+//     }
+
+//     // Fetch trip again
+//     const trip = await Trip.findById(tripId);
+//     if (!trip) {
+//       return res.status(404).json({ message: "Trip not found" });
+//     }
+
+//     const age = Number(passenger.age);
+//     const price = age > 0 && age < 16 ? 50 : trip.basePrice;
+
+//     // Save booking
+//     const booking = await Booking.create({
+//       trip: tripId,
+//       date,
+//       passenger,
+//       pricePaid: price,
+//       paymentId: capture.result.id,
+//       paymentStatus: "PAID"
+//     });
+
+//     return res.json({
+//       message: "Payment captured and booking saved",
+//       booking,
+//     });
+
+//   } catch (err) {
+//     console.error("❌ PayPal Capture Error:", err);
+//     return res.status(500).json({
+//       message: "PayPal capture failed",
+//       error: err.message,
+//     });
+//   }
+// };
 exports.captureOrder = async (req, res) => {
   try {
     const { orderId, tripId, date, passenger } = req.body;
@@ -141,41 +117,65 @@ exports.captureOrder = async (req, res) => {
     if (!orderId) {
       return res.status(400).json({ message: "orderId is required" });
     }
+    if (!tripId || !date || !passenger) {
+      return res.status(400).json({ message: "Missing booking fields" });
+    }
 
+    // -------------------------------
+    // 1️⃣ CAPTURE PAYMENT
+    // -------------------------------
     const captureRequest = new paypal.orders.OrdersCaptureRequest(orderId);
-    captureRequest.requestBody({});
+    captureRequest.requestBody({}); // required but empty
 
     const capture = await client.execute(captureRequest);
 
-    if (!capture.result ||
-        !capture.result.purchase_units ||
-        capture.result.status !== "COMPLETED") 
-    {
-      return res.status(400).json({ message: "Payment not completed" });
+    if (
+      !capture.result ||
+      capture.result.status !== "COMPLETED"
+    ) {
+      return res.status(400).json({
+        message: "Payment not completed",
+        paypalStatus: capture.result?.status,
+      });
     }
 
-    // Fetch trip again
+    // -------------------------------
+    // 2️⃣ VALIDATE TRIP & PRICE LOGIC
+    // -------------------------------
     const trip = await Trip.findById(tripId);
-    if (!trip) {
-      return res.status(404).json({ message: "Trip not found" });
-    }
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
 
     const age = Number(passenger.age);
-    const price = age > 0 && age < 16 ? 50 : trip.basePrice;
+    const price = age > 0 && age <= 15 ? 50 : trip.basePrice;
 
-    // Save booking
+    // -------------------------------
+    // 3️⃣ SAVE BOOKING IN DATABASE
+    // -------------------------------
     const booking = await Booking.create({
       trip: tripId,
       date,
       passenger,
       pricePaid: price,
       paymentId: capture.result.id,
-      paymentStatus: "PAID"
+      paymentStatus: "PAID",
     });
 
+    await booking.populate("trip");
+
+    // -------------------------------
+    // 4️⃣ GENERATE PDF TICKET + QR
+    // -------------------------------
+    const pdfPath = await generateTicketPDF(booking);
+
+    const ticketUrl = `${process.env.BASE_URL}/tickets/${pdfPath.split("tickets/")[1]}`;
+
+    // -------------------------------
+    // 5️⃣ SEND RESPONSE
+    // -------------------------------
     return res.json({
       message: "Payment captured and booking saved",
       booking,
+      ticketUrl, // ⬅ Frontend shows “Download Ticket”
     });
 
   } catch (err) {
